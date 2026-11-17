@@ -144,9 +144,14 @@ function Zbor({ tinta }: { tinta: Tinta | null }) {
         if ((map.getZoom() ?? 0) > 19.5) map.setZoom(19.5);
       });
     } else if (tinta.centru) {
-      if (tinta.zoom) map.setZoom(tinta.zoom);
-      map.setCenter({ lng: tinta.centru[0], lat: tinta.centru[1] });
-      if (hPanou) map.panBy(0, Math.round(hPanou / 2));
+      const z = tinta.zoom ?? map.getZoom() ?? 12;
+      const [lon, lat] = tinta.centru;
+      // centrul se mută spre sud cu jumătate din înălțimea panoului, ca ținta să apară deasupra lui
+      // (panBy imediat după setCenter e ignorat de Google Maps)
+      const mPePixel = (156543.03392 * Math.cos((lat * Math.PI) / 180)) / 2 ** z;
+      const dLat = ((hPanou / 2) * mPePixel) / 111320;
+      map.setZoom(z);
+      map.setCenter({ lng: lon, lat: lat - dLat });
     }
   }, [map, tinta]);
   return null;
@@ -213,6 +218,8 @@ export default function Harta() {
     Promise.all([ia<UatInfo[]>("/data/uat.json"), ia<LimiteToate>("/data/limite.json")]).then(([l, li]) => {
       setLista(l);
       setLim(li);
+      // cu ?q= căutarea mută harta; vederea de ansamblu ar concura cu ea
+      if (new URLSearchParams(window.location.search).get("q")) return;
       const z = unireBBox(l.map((u) => u.bbox));
       // pe telefon fitBounds alege zoom întreg prea mic (zona e ~70 km lățime): centru + zoom 9
       if (esteMobil()) zboaraLa({ centru: [(z[0] + z[2]) / 2, (z[1] + z[3]) / 2], zoom: 9 });
@@ -228,6 +235,7 @@ export default function Harta() {
     const f = parcelaLa(d, cerere.p[0], cerere.p[1], cerere.nr);
     setSelectat(f);
     if (f && cerere.nr) setTinta({ bb: f.bb, id: Date.now() });
+    else setTinta({ centru: cerere.p, zoom: 19, id: Date.now() });
   }, []);
 
   const incarcaUat = useCallback(async (id: string) => {
