@@ -213,7 +213,10 @@ export default function Harta() {
     Promise.all([ia<UatInfo[]>("/data/uat.json"), ia<LimiteToate>("/data/limite.json")]).then(([l, li]) => {
       setLista(l);
       setLim(li);
-      zboaraLa({ bb: unireBBox(l.map((u) => u.bbox)) });
+      const z = unireBBox(l.map((u) => u.bbox));
+      // pe telefon fitBounds alege zoom întreg prea mic (zona e ~70 km lățime): centru + zoom 9
+      if (esteMobil()) zboaraLa({ centru: [(z[0] + z[2]) / 2, (z[1] + z[3]) / 2], zoom: 9 });
+      else zboaraLa({ bb: z });
     }, (e: Error) => setEroare(e.message));
   }, [zboaraLa]);
 
@@ -468,9 +471,11 @@ export default function Harta() {
         getPosition: (e) => e.p, getText: (e) => e.n, getSize: 16, getColor: [255, 170, 255, 255], fontWeight: 700, ...textComun,
       })] : [])),
       new TextLayer<UatInfo>({
-        id: "nume-uat", data: lista, visible: departe,
-        getPosition: (u) => u.eticheta, getText: (u) => u.nume.toUpperCase(), getSize: 15,
+        id: "nume-uat", data: lista, visible: departe && zoom >= 8,
+        getPosition: (u) => u.eticheta, getText: (u) => u.nume.toUpperCase(),
         getColor: (u) => rgb(u.culoare), fontWeight: 800, characterSet: "auto", ...textComun, outlineWidth: 4,
+        // mărime în metri: la zoom mic numele se micșorează și nu se mai calcă între ele
+        sizeUnits: "meters", getSize: 700, sizeMinPixels: 8, sizeMaxPixels: 18,
       }),
       new ScatterplotLayer<[number, number]>({
         id: "marker", data: marker ? [marker] : [], getPosition: (d) => d,
@@ -478,7 +483,7 @@ export default function Harta() {
         stroked: true, getLineColor: ALB, lineWidthUnits: "pixels", getLineWidth: 2,
       }),
     ] as Layer[];
-  }, [lista, lim, incarcate, sectoare, straturi, ascunse, aproape, departe, selectat, marker]);
+  }, [lista, lim, incarcate, sectoare, straturi, ascunse, aproape, departe, zoom, selectat, marker]);
 
   const comuta = (k: keyof Straturi) => setStraturi((s) => ({ ...s, [k]: !s[k] }));
   const comutaUat = (id: string) => setAscunse((s) => {

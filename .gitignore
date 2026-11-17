@@ -47,3 +47,6 @@ next-env.d.ts
 
 # rapoarte de eroare AutoCAD Core Console
 ErrorReports/
+
+.vercel
+.env*
