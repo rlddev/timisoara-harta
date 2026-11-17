@@ -1,0 +1,337 @@
+.ecran {
+  position: fixed;
+  inset: 0;
+}
+
+.harta {
+  position: absolute;
+  inset: 0;
+}
+
+.panou {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  width: 370px;
+  max-height: calc(100vh - 24px);
+  max-height: calc(100dvh - 24px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 12px 16px 14px;
+  border-radius: 12px;
+  background: rgba(16, 19, 25, 0.9);
+  backdrop-filter: blur(8px);
+  color: #e9ecf1;
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.35);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.antet {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.titlu {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 650;
+}
+
+.comutaPanou {
+  flex: none;
+  width: 34px;
+  height: 30px;
+  border: 1px solid #3a414d;
+  border-radius: 8px;
+  background: #1b2029;
+  color: #e9ecf1;
+  font-size: 16px;
+  cursor: pointer;
+}
+
+.panou[data-restrans] .extra {
+  display: none;
+}
+
+.atentie {
+  margin: 0 0 10px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: rgba(255, 170, 0, 0.16);
+  color: #ffd27a;
+}
+
+.atentie code {
+  font-size: 12px;
+}
+
+.cautare {
+  display: flex;
+  gap: 6px;
+}
+
+.cautare input {
+  flex: 1;
+  min-width: 0;
+  padding: 8px 10px;
+  border: 1px solid #3a414d;
+  border-radius: 8px;
+  background: #0d1015;
+  color: inherit;
+  font: inherit;
+}
+
+.cautare input:focus {
+  outline: 2px solid #00b8d9;
+  border-color: transparent;
+}
+
+.cautare button,
+.variante button,
+.butoane a,
+.butoane button {
+  padding: 7px 11px;
+  border: 0;
+  border-radius: 8px;
+  background: #00a3c4;
+  color: #fff;
+  font: inherit;
+  font-weight: 600;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.cautare button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.mesaj {
+  margin: 8px 0 0;
+  color: #c9d1dc;
+}
+
+.variante {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.variante button {
+  padding: 4px 8px;
+  background: #2a313c;
+}
+
+.detalii {
+  position: relative;
+  margin-top: 12px;
+  padding: 12px;
+  border-radius: 10px;
+  background: rgba(0, 229, 255, 0.08);
+  border: 1px solid rgba(0, 229, 255, 0.35);
+}
+
+.inchide {
+  position: absolute;
+  top: 4px;
+  right: 6px;
+  width: 32px;
+  height: 32px;
+  border: 0;
+  background: none;
+  color: #9aa4b2;
+  font-size: 22px;
+  cursor: pointer;
+}
+
+.eticheta {
+  color: #9aa4b2;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.numar {
+  font-size: 22px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.detalii dl {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 3px 10px;
+  margin: 10px 0 0;
+}
+
+.detalii dt {
+  color: #9aa4b2;
+}
+
+.detalii dd {
+  margin: 0;
+  font-variant-numeric: tabular-nums;
+}
+
+.butoane {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.butoane button {
+  background: #2a313c;
+}
+
+.mic {
+  margin: 6px 0 0;
+  color: #9aa4b2;
+  font-size: 12px;
+}
+
+.straturi {
+  margin: 14px 0 0;
+  padding: 8px 10px 10px;
+  border: 1px solid #2c333e;
+  border-radius: 10px;
+}
+
+.straturi legend {
+  padding: 0 4px;
+  color: #9aa4b2;
+}
+
+.straturi summary {
+  color: #c9d1dc;
+  cursor: pointer;
+}
+
+.straturi label {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 2px 0;
+  cursor: pointer;
+}
+
+.straturi i {
+  display: inline-block;
+  flex: none;
+  width: 12px;
+  height: 12px;
+  border-radius: 3px;
+}
+
+.straturi label > span {
+  flex: 1;
+  min-width: 0;
+}
+
+.listaUat {
+  margin-top: 6px;
+}
+
+.listaUat .mic {
+  margin: 0;
+}
+
+.zboara {
+  flex: none;
+  padding: 2px 8px;
+  border: 1px solid #3a414d;
+  border-radius: 6px;
+  background: none;
+  color: #9fd8e6;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.punct {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  margin-right: 6px;
+  border-radius: 50%;
+  vertical-align: baseline;
+}
+
+.sursa {
+  margin: 12px 0 0;
+  color: #7f8896;
+  font-size: 11px;
+}
+
+.cursor {
+  position: absolute;
+  right: 60px;
+  bottom: 24px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  padding: 6px 10px;
+  border-radius: 8px;
+  background: rgba(16, 19, 25, 0.85);
+  color: #e9ecf1;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  pointer-events: none;
+}
+
+/* telefon: panoul devine o foaie jos, strânsă implicit (doar căutarea și detaliile) */
+@media (max-width: 760px) {
+  .panou {
+    top: auto;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    width: auto;
+    max-height: 50vh;
+    max-height: 50dvh;
+    padding: 10px 12px calc(12px + env(safe-area-inset-bottom));
+    border-radius: 14px 14px 0 0;
+    font-size: 14px;
+  }
+
+  .titlu {
+    font-size: 15px;
+  }
+
+  .comutaPanou {
+    width: 44px;
+    height: 36px;
+  }
+
+  .cautare input {
+    font-size: 16px; /* fără zoom automat pe iOS */
+    padding: 10px 12px;
+  }
+
+  .cautare button,
+  .butoane a,
+  .butoane button {
+    padding: 10px 14px;
+  }
+
+  .variante button {
+    padding: 8px 10px;
+  }
+
+  .straturi label {
+    padding: 6px 0;
+  }
+
+  .zboara {
+    padding: 6px 10px;
+  }
+
+  .cursor {
+    display: none;
+  }
+}

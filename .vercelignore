@@ -1,0 +1,9 @@
+# Vercel CLI: se urcă și public/data (generat local, nu e în git)
+node_modules
+.next
+date-sursa
+.env*
+*.dxf
+*.dwg
+ErrorReports
+.vercel
