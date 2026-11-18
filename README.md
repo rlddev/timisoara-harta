@@ -25,8 +25,8 @@ Ce poți face:
   selectează imobilul;
 - **măsurare** (riglă): click / atingere pe hartă pune puncte – lungimea fiecărui segment, totalul și
   suprafața (≥ 3 puncte), calculate în planul Stereo 70; merge și în 3D;
-- **oferte de vânzare** (Moșnița Nouă, teren extravilan, Legea 17/2014): lista din panoul din stânga
-  (deschise / toate, cu €/m², preț total și termenul pentru preemptori), puncte cu prețul pe hartă (verde =
+- **oferte de vânzare** (teren extravilan, Legea 17/2014, din toate UAT-urile hărții): lista din panoul din
+  stânga (filtru pe localitate, deschise / toate, cu €/m², preț total și termenul pentru preemptori), puncte cu prețul pe hartă (verde =
   deschisă, portocaliu = potențial cumpărător, albastru = acceptată, gri = închisă); click pe ofertă duce
   la imobil și arată detaliile, cu linkul la pagina oficială a ofertei; sub listă, linkul spre registru (sursa);
 - **obiective Google** (magazine, firme, monumente): click deschide fereastra lor ca în Google Maps; în 3D
@@ -66,8 +66,8 @@ python scripts/combina.py
 python scripts/altitudini.py
 # 6. ofertele de vânzare din registrul extravilanagricol.ro (anul curent), legate de imobile după
 #    numărul cadastral / CF; curs EUR de la BCE. Se schimbă zilnic: rulează din nou, apoi deploy.
-python scripts/oferte.py                         # implicit Moșnița Nouă
-python scripts/oferte.py --uat mosnita-noua --localitate "Mosnita Noua" --ani 2025 2026
+python scripts/oferte.py                         # toate UAT-urile (~15 min; cache pentru ofertele închise)
+python scripts/oferte.py --uat mosnita-noua giroc --ani 2025 2026
 # (opțional) alinierea pe imaginea satelit Esri
 python scripts/verifica_aliniere.py timisoara 45.7231938 21.1586212 date-sursa/aliniere.png
 ```

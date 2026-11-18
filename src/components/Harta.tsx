@@ -40,7 +40,7 @@ type Straturi = {
 };
 type Tinta = { id: number; bb?: BBox; centru?: [number, number]; zoom?: number };
 /** O ofertă de vânzare împreună cu UAT-ul și cursul EUR din fișierul ei. */
-type OfertaLoc = { o: Oferta; u: string; curs: number };
+type OfertaLoc = { o: Oferta; u: string; nume: string; curs: number };
 const CULOARE_STARE: Record<StareOferta, [number, number, number]> = {
   deschisa: [70, 230, 110], potential: [255, 170, 40], acceptata: [0, 200, 255], inchisa: [160, 160, 160],
 };
@@ -49,6 +49,16 @@ const TEXT_STARE: Record<StareOferta, string> = {
 };
 const REGISTRU_OFERTE = "https://www.extravilanagricol.ro/";
 const esteDeschisa = (o: Oferta) => o.stare === "deschisa" || o.stare === "potential";
+/** „dd.mm.yyyy” → yyyymmdd (comparabil), null dacă lipsește. */
+const ziDin = (d: string | null) => {
+  const m = d?.match(/^(\d{2})\.(\d{2})\.(\d{4})$/);
+  return m ? Number(m[3] + m[2] + m[1]) : null;
+};
+/** Unele primării nu închid ofertele în registru: „deschisă” cu termenul trecut = închisă (termen expirat). */
+const stareEfectiva = (o: Oferta, azi: number): StareOferta => {
+  const z = ziDin(o.limita);
+  return esteDeschisa(o) && z != null && z < azi ? "inchisa" : o.stare;
+};
 /** Numărul cadastral al ofertei (unele oferte au tarlaua în câmpul cadastral și numărul doar la CF). */
 const nrOferta = (o: Oferta) => [o.nc, o.cf].find((n) => n && /^\d+$/.test(n)) ?? null;
 const titluOferta = (o: Oferta) => {
@@ -278,17 +288,23 @@ function Continut() {
   const [oferte, setOferte] = useState<OferteUat[]>([]);
   const [ofertaSel, setOfertaSel] = useState<OfertaLoc | null>(null);
   const [doarDeschise, setDoarDeschise] = useState(true);
+  const [uatOferte, setUatOferte] = useState(""); // "" = toate localitățile
   // click pe un obiectiv Google (POI): Google își deschide fereastra, nu se schimbă imobilul selectat
   const clickPoi = useRef(0);
 
   const zboaraLa = useCallback((t: Omit<Tinta, "id">) => setTinta({ ...t, id: Date.now() }), []);
 
   useEffect(() => {
-    ia<OferteUat[]>("/data/oferte.json").then(setOferte, () => undefined);
+    const d = new Date();
+    const azi = d.getFullYear() * 10000 + (d.getMonth() + 1) * 100 + d.getDate();
+    ia<OferteUat[]>("/data/oferte.json").then(
+      (x) => setOferte(x.map((f) => ({ ...f, oferte: f.oferte.map((o) => ({ ...o, stare: stareEfectiva(o, azi) })) }))),
+      () => undefined,
+    );
   }, []);
 
   const toateOfertele = useMemo<OfertaLoc[]>(
-    () => oferte.flatMap((f) => f.oferte.map((o) => ({ o, u: f.uat, curs: f.curs.eur }))), [oferte]);
+    () => oferte.flatMap((f) => f.oferte.map((o) => ({ o, u: f.uat, nume: f.nume, curs: f.curs.eur }))), [oferte]);
   const ofertePeNr = useMemo(() => {
     const m = new Map<string, OfertaLoc[]>();
     for (const x of toateOfertele) {
@@ -306,12 +322,12 @@ function Continut() {
   }, [ofertePeNr]);
   /** Ofertele din listă (filtrul „deschise”), cele mai apropiate de termen primele. */
   const oferteLista = useMemo(() => {
-    const zi = (d: string | null) => (d ? d.split(".").reverse().join("") : "99999999");
     return toateOfertele
-      .filter((x) => !doarDeschise || esteDeschisa(x.o))
-      .sort((a, b) => (esteDeschisa(a.o) === esteDeschisa(b.o) ? zi(a.o.limita).localeCompare(zi(b.o.limita)) : esteDeschisa(a.o) ? -1 : 1));
-  }, [toateOfertele, doarDeschise]);
+      .filter((x) => (!doarDeschise || esteDeschisa(x.o)) && (!uatOferte || x.u === uatOferte))
+      .sort((a, b) => (esteDeschisa(a.o) === esteDeschisa(b.o) ? (ziDin(a.o.limita) ?? 99999999) - (ziDin(b.o.limita) ?? 99999999) : esteDeschisa(a.o) ? -1 : 1));
+  }, [toateOfertele, doarDeschise, uatOferte]);
   const oferteHarta = useMemo(() => oferteLista.filter((x) => x.o.p), [oferteLista]);
+  const dinUat = useMemo(() => toateOfertele.filter((x) => !uatOferte || x.u === uatOferte), [toateOfertele, uatOferte]);
   const dupaId = useMemo(() => new Map((lista ?? []).map((u) => [u.id, u])), [lista]);
   const numeUat = useCallback((u: string) => dupaId.get(u)?.nume ?? u, [dupaId]);
 
@@ -999,15 +1015,26 @@ function Continut() {
           {oferte.length > 0 && (
             <details className={`${styles.straturi} ${styles.oferte}`} open={!esteMobil()}>
               <summary>
-                Oferte de vânzare teren extravilan · {oferte.map((f) => f.nume).join(", ")}{" "}
+                Oferte de vânzare teren extravilan · {oferte.length === 1 ? oferte[0].nume : `${oferte.length} localități`}{" "}
                 <span className={styles.mic}>({toateOfertele.filter((x) => esteDeschisa(x.o)).length} deschise)</span>
               </summary>
+              {oferte.length > 1 && (
+                <select className={styles.alegeUat} value={uatOferte} onChange={(e) => setUatOferte(e.target.value)}
+                  aria-label="Localitatea ofertelor">
+                  <option value="">Toate localitățile</option>
+                  {[...oferte].sort((a, b) => a.nume.localeCompare(b.nume, "ro")).map((f) => (
+                    <option key={f.uat} value={f.uat}>
+                      {f.nume} ({f.oferte.filter(esteDeschisa).length} deschise / {f.oferte.length})
+                    </option>
+                  ))}
+                </select>
+              )}
               <div className={styles.filtru} role="group" aria-label="Filtru oferte">
                 <button type="button" aria-pressed={doarDeschise} onClick={() => setDoarDeschise(true)}>
-                  Deschise ({toateOfertele.filter((x) => esteDeschisa(x.o)).length})
+                  Deschise ({dinUat.filter((x) => esteDeschisa(x.o)).length})
                 </button>
                 <button type="button" aria-pressed={!doarDeschise} onClick={() => setDoarDeschise(false)}>
-                  Toate ({toateOfertele.length})
+                  Toate ({dinUat.length})
                 </button>
               </div>
               <ul className={styles.listaOferte}>
@@ -1027,6 +1054,7 @@ function Continut() {
                           {o.pret != null && <span>{fmt0.format(o.pret / x.curs)} €</span>}
                         </span>
                         <span className={styles.ofertaStare}>
+                          {!uatOferte && oferte.length > 1 && `${x.nume} · `}
                           {esteDeschisa(o) && o.limita ? `până la ${o.limita.slice(0, 5)}` : TEXT_STARE[o.stare]}
                           {!o.p && " · fără hartă"}
                         </span>
@@ -1035,18 +1063,16 @@ function Continut() {
                   );
                 })}
               </ul>
+              {oferteLista.length === 0 && <p className={styles.mic}>Nicio ofertă deschisă aici acum.</p>}
               <p className={styles.sursa}>
-                Sursa:{" "}
-                {oferte.map((f, i) => (
+                Sursa: registrul ofertelor extravilanagricol.ro (Legea 17/2014) –{" "}
+                {oferte.filter((f) => !uatOferte || f.uat === uatOferte).map((f, i) => (
                   <span key={f.uat}>
-                    {i > 0 && "; "}
-                    <a href={f.link ?? REGISTRU_OFERTE} target="_blank" rel="noopener noreferrer">
-                      registrul ofertelor extravilanagricol.ro · {f.nume}
-                    </a>{" "}
-                    (Legea 17/2014), actualizat {f.actualizat}
+                    {i > 0 && ", "}
+                    <a href={f.link ?? REGISTRU_OFERTE} target="_blank" rel="noopener noreferrer">{f.nume}</a>
                   </span>
                 ))}
-                . Fiecare ofertă are și linkul la pagina ei oficială.
+                ; actualizat {oferte.map((f) => f.actualizat).sort()[0]}. Fiecare ofertă are și linkul la pagina ei oficială.
                 Euro la cursul {oferte[0].curs.sursa} din {oferte[0].curs.data} ({oferte[0].curs.eur} lei). Prețuri cerute în oferte,
                 nu prețuri de vânzare. Verde = deschisă, portocaliu = potențial cumpărător, albastru = acceptată, gri = închisă.
               </p>
@@ -1118,7 +1144,7 @@ function CardOferta({ x, singur }: { x: OfertaLoc; singur?: boolean }) {
     <div className={singur ? undefined : styles.cardOferta}>
       <div className={styles.eticheta}>
         <i className={styles.punct} style={{ background: css(CULOARE_STARE[o.stare]) }} />
-        Ofertă de vânzare {o.nr} · {TEXT_STARE[o.stare]}
+        Ofertă de vânzare {o.nr} · {x.nume} · {TEXT_STARE[o.stare]}
       </div>
       {singur && <div className={styles.numar}>{titluOferta(o)}</div>}
       <dl>
@@ -1150,7 +1176,7 @@ function CardOferta({ x, singur }: { x: OfertaLoc; singur?: boolean }) {
         <dd>
           {esteDeschisa(o)
             ? `${o.stare === "potential" ? "potențiali cumpărători" : "preemptorii pot accepta"} până la ${o.limita ?? "?"}`
-            : o.rezolutie ?? TEXT_STARE[o.stare]}
+            : o.rezolutie ?? `${TEXT_STARE[o.stare]}${o.limita ? ` (termen ${o.limita})` : ""}`}
         </dd>
         <dt>Preemptori</dt>
         <dd>
