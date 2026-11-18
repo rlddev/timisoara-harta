@@ -1,15 +1,17 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { APIProvider, Map as GMap, useMap, type MapCameraChangedEvent } from "@vis.gl/react-google-maps";
+import { APIProvider, ControlPosition, Map as GMap, useMap, type MapCameraChangedEvent, type MapMouseEvent } from "@vis.gl/react-google-maps";
 import { GoogleMapsOverlay } from "@deck.gl/google-maps";
-import { GeoJsonLayer, ScatterplotLayer, TextLayer } from "@deck.gl/layers";
+import { GeoJsonLayer, PathLayer, ScatterplotLayer, TextLayer } from "@deck.gl/layers";
 import type { Layer, PickingInfo } from "@deck.gl/core";
 import {
-  bboxInel, decInel, decPoligon, decPunct, inBBox, inGeom, inPoligon, interpreteaza, intersecteaza, laStereo70, unireBBox,
+  altitudine, bboxInel, decInel, decPoligon, decPunct, directie, distantaDinZoom, inBBox, inGeom, inPoligon, interpreteaza,
+  intersecteaza, laStereo70, masoara, metriPePixel, unireBBox, zoomDinDistanta,
   type BBox, type Compact, type Constructie, type Eticheta, type FConstructie, type FisierSectoare, type FNumar, type FParcela,
-  type LimiteToate, type Parcela, type Poligon, type UatInfo,
+  type GrilaAltitudini, type LimiteToate, type Parcela, type Poligon, type UatInfo,
 } from "@/lib/geo";
+import Harta3D, { type Camera3D, type Zbor3D } from "./Harta3D";
 import styles from "./harta.module.css";
 
 const CHEIE = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY ?? "";
@@ -93,9 +95,29 @@ function undeE(lim: LimiteToate | null, lon: number, lat: number): { uat: string
   return { uat: id, intravilan: lim.intravilan.features.some((x) => x.properties.id === id && inGeom(x.geometry, lon, lat)) };
 }
 
+const fmtDist = (m: number) => (m < 1000 ? `${fmt.format(m)} m` : `${new Intl.NumberFormat("ro-RO", { maximumFractionDigits: 2 }).format(m / 1000)} km`);
+const fmtArie = (a: number) => (a < 10000 ? `${fmt.format(a)} mp` : `${fmt.format(a)} mp (${new Intl.NumberFormat("ro-RO", { maximumFractionDigits: 2 }).format(a / 10000)} ha)`);
+
 const rgb = (c: number[], a = 255): [number, number, number, number] => [c[0], c[1], c[2], a];
 const css = (c: number[]) => `rgb(${c[0]}, ${c[1]}, ${c[2]})`;
 const esteMobil = () => typeof window !== "undefined" && window.innerWidth <= 760;
+/** BBox lon/lat de ±r metri în jurul unui punct. */
+const cutie = (lon: number, lat: number, r: number): BBox => {
+  const dLat = r / 111320;
+  const dLon = dLat / Math.cos((lat * Math.PI) / 180);
+  return [lon - dLon, lat - dLat, lon + dLon, lat + dLat];
+};
+const centruBB = (bb: BBox): [number, number] => [(bb[0] + bb[2]) / 2, (bb[1] + bb[3]) / 2];
+/**
+ * Pe telefon panoul acoperă jumătatea de jos: în 3D centrul camerei se mută înapoi (spre cameră),
+ * ca ținta să apară mai sus pe ecran.
+ */
+const centru3d = (lon: number, lat: number, range: number, heading: number): [number, number] => {
+  if (!esteMobil()) return [lon, lat];
+  const d = range * 0.18;
+  const h = (heading * Math.PI) / 180;
+  return [lon - (d * Math.sin(h)) / (111320 * Math.cos((lat * Math.PI) / 180)), lat - (d * Math.cos(h)) / 111320];
+};
 
 // ---------------------------------------------------------------- componente din interiorul hărții
 
@@ -182,6 +204,15 @@ function Cursor({ lim, nume }: { lim: LimiteToate | null; nume: (u: string) => s
 // ---------------------------------------------------------------- pagina
 
 export default function Harta() {
+  return (
+    <APIProvider apiKey={CHEIE} language="ro" region="RO">
+      <Continut />
+    </APIProvider>
+  );
+}
+
+function Continut() {
+  const map = useMap();
   const [lista, setLista] = useState<UatInfo[] | null>(null);
   const [lim, setLim] = useState<LimiteToate | null>(null);
   const [eroare, setEroare] = useState<string | null>(null);
@@ -194,7 +225,7 @@ export default function Harta() {
     incarcateRef.current = incarcate;
   }, [incarcate]);
   // selecția cerută de căutare pentru un UAT care încă se încarcă
-  const deSelectat = useRef<{ u: string; p: [number, number]; nr?: string } | null>(null);
+  const deSelectat = useRef<{ u: string; p: [number, number]; nr?: string; faraZbor?: boolean } | null>(null);
   const [vizor, setVizor] = useState<Vizor | null>(null);
   const [straturi, setStraturi] = useState<Straturi>({
     parcele: true, istorice: false, constructii: true, numere: true,
@@ -209,6 +240,13 @@ export default function Harta() {
   const [variante, setVariante] = useState<Gasit[]>([]);
   const [restrans, setRestrans] = useState(esteMobil);
   const indexNumere = useRef<Map<string, Gasit[]> | null>(null);
+  // unelte: 3D, Street View, măsurare
+  const [mod3d, setMod3d] = useState(false);
+  const [start3d, setStart3d] = useState<Camera3D | null>(null);
+  const [cam3d, setCam3d] = useState<Camera3D | null>(null);
+  const [inSV, setInSV] = useState(false);
+  const [masurare, setMasurare] = useState(false);
+  const [puncte, setPuncte] = useState<[number, number][]>([]);
 
   const zboaraLa = useCallback((t: Omit<Tinta, "id">) => setTinta({ ...t, id: Date.now() }), []);
   const dupaId = useMemo(() => new Map((lista ?? []).map((u) => [u.id, u])), [lista]);
@@ -234,6 +272,7 @@ export default function Harta() {
     deSelectat.current = null;
     const f = parcelaLa(d, cerere.p[0], cerere.p[1], cerere.nr);
     setSelectat(f);
+    if (cerere.faraZbor) return;
     if (f && cerere.nr) setTinta({ bb: f.bb, id: Date.now() });
     else setTinta({ centru: cerere.p, zoom: 19, id: Date.now() });
   }, []);
@@ -277,6 +316,16 @@ export default function Harta() {
     }, 250);
     return () => clearTimeout(t);
   }, [lista, vizor, ascunse, incarcaUat]);
+
+  // în 3D: UAT-urile din jurul camerei
+  useEffect(() => {
+    if (!mod3d || !lista || !cam3d || cam3d.range > 8000) return;
+    const t = setTimeout(() => {
+      const bb = cutie(cam3d.lon, cam3d.lat, cam3d.range);
+      for (const u of lista) if (!ascunse.has(u.id) && intersecteaza(u.bbox, bb)) void incarcaUat(u.id);
+    }, 250);
+    return () => clearTimeout(t);
+  }, [mod3d, lista, cam3d, ascunse, incarcaUat]);
 
   // sectoarele (strat opțional) pentru UAT-urile încărcate
   useEffect(() => {
@@ -391,9 +440,173 @@ export default function Harta() {
   }, [lista, lim, cauta]);
 
   const onClick = useCallback((info: PickingInfo) => {
+    if (masurare) return; // în modul măsurare click-ul pune puncte (onMapClick)
     const f = info.object as Parcela | undefined;
     setSelectat(f && "bb" in f ? f : null);
-  }, []);
+  }, [masurare]);
+
+  // ---------------------------------------------------------------- măsurare
+  const onMapClick = useCallback((ev: MapMouseEvent) => {
+    const ll = ev.detail.latLng;
+    if (!masurare || !ll) return;
+    setPuncte((p) => [...p, [ll.lng, ll.lat]]);
+  }, [masurare]);
+  const masura = useMemo(() => masoara(puncte), [puncte]);
+  const comutaMasurare = () => {
+    setMasurare((m) => !m);
+    setPuncte([]);
+    if (esteMobil()) setRestrans(true);
+  };
+
+  // ---------------------------------------------------------------- Street View
+  useEffect(() => {
+    if (!map) return;
+    const sv = map.getStreetView();
+    sv.setOptions({ addressControl: true, enableCloseButton: true, fullscreenControl: false, zoomControl: !esteMobil() });
+    const l = sv.addListener("visible_changed", () => setInSV(sv.getVisible()));
+    return () => l.remove();
+  }, [map]);
+
+  /** Panorama Street View cea mai apropiată (≤ 200 m) de punct, orientată spre `spre`. */
+  const deschideStreetView = useCallback(async (lon: number, lat: number, spre?: [number, number]) => {
+    if (!map) return;
+    try {
+      // întâi panoramele mașinii Google (pe stradă), apoi orice panoramă exterioară (și fotosfere)
+      const svc = new google.maps.StreetViewService();
+      const cere = (sources: google.maps.StreetViewSource[]) => svc.getPanorama({
+        location: { lat, lng: lon }, radius: 200, preference: google.maps.StreetViewPreference.NEAREST, sources,
+      });
+      const r = await cere([google.maps.StreetViewSource.GOOGLE]).catch(() => cere([google.maps.StreetViewSource.OUTDOOR]));
+      const loc = r.data.location;
+      if (!loc?.pano || !loc.latLng) throw new Error("fără panoramă");
+      const [tl, ta] = spre ?? [lon, lat];
+      setMod3d(false);
+      map.setCenter(loc.latLng);
+      const sv = map.getStreetView();
+      sv.setPano(loc.pano);
+      sv.setPov({ heading: directie(loc.latLng.lng(), loc.latLng.lat(), tl, ta), pitch: 0 });
+      sv.setVisible(true);
+      if (esteMobil()) setRestrans(true);
+    } catch {
+      setMesaj("Nu există Street View la mai puțin de 200 m de acest loc.");
+    }
+  }, [map]);
+
+  const centruCurent = (): [number, number] => {
+    if (mod3d && cam3d) return [cam3d.lon, cam3d.lat];
+    const c = map?.getCenter();
+    return c ? [c.lng(), c.lat()] : [CENTRU.lng, CENTRU.lat];
+  };
+
+  const streetViewAici = () => {
+    if (inSV) {
+      map?.getStreetView().setVisible(false);
+      return;
+    }
+    if (selectat) {
+      const c = centruBB(selectat.bb);
+      void deschideStreetView(c[0], c[1], c);
+    } else {
+      const [lon, lat] = centruCurent();
+      void deschideStreetView(lon, lat);
+    }
+  };
+
+  // ---------------------------------------------------------------- 3D
+  const grilaAlt = useRef<GrilaAltitudini | null>(null);
+  const altLa = useCallback((lon: number, lat: number) => altitudine(grilaAlt.current, lon, lat), []);
+
+  const comuta3d = async () => {
+    if (!map) return;
+    if (inSV) map.getStreetView().setVisible(false);
+    if (!mod3d) {
+      if (!grilaAlt.current) {
+        try {
+          grilaAlt.current = await ia<GrilaAltitudini>("/data/altitudini.json");
+        } catch {
+          // fără grilă: 90 m (câmpia Timișului)
+        }
+      }
+      const c = map.getCenter();
+      const [lon, lat] = selectat ? centruBB(selectat.bb) : [c?.lng() ?? CENTRU.lng, c?.lat() ?? CENTRU.lat];
+      const z = Math.max(map.getZoom() ?? 12, 15);
+      const range = Math.max(250, distantaDinZoom(z, lat, window.innerHeight));
+      const [clon, clat] = centru3d(lon, lat, range, 0);
+      const s: Camera3D = { lon: clon, lat: clat, alt: altLa(lon, lat), range, heading: 0, tilt: 55 };
+      setStart3d(s);
+      setCam3d(s);
+      setMod3d(true);
+    } else {
+      if (cam3d) {
+        map.setCenter({ lat: cam3d.lat, lng: cam3d.lon });
+        map.setZoom(Math.round(Math.min(20, Math.max(8, zoomDinDistanta(cam3d.range, cam3d.lat, window.innerHeight)))));
+      }
+      setMod3d(false);
+    }
+  };
+
+  const onCamera3d = useCallback((c: Camera3D) => setCam3d(c), []);
+
+  const onClickLoc3d = useCallback((lon: number, lat: number) => {
+    if (masurare) {
+      setPuncte((p) => [...p, [lon, lat]]);
+      return;
+    }
+    const { uat } = undeE(lim, lon, lat);
+    if (!uat) {
+      setSelectat(null);
+      return;
+    }
+    const d = incarcateRef.current[uat];
+    if (d) setSelectat(parcelaLa(d, lon, lat));
+    else {
+      deSelectat.current = { u: uat, p: [lon, lat], faraZbor: true };
+      void incarcaUat(uat);
+    }
+  }, [masurare, lim, incarcaUat]);
+
+  // imobilele din jurul camerei 3D (contururi pe teren; câteva sute, nu toate)
+  const parcele3d = useMemo(() => {
+    if (!mod3d || !cam3d || !lista || cam3d.range > 2500 || !straturi.parcele) return [];
+    const bb = cutie(cam3d.lon, cam3d.lat, Math.min(cam3d.range * 0.8, 700));
+    const rez: { f: Parcela; culoare: number[]; d: number }[] = [];
+    for (const u of lista) {
+      const d = incarcate[u.id];
+      if (!d || ascunse.has(u.id) || !intersecteaza(u.bbox, bb)) continue;
+      for (const f of d.cuNumar) {
+        if (!intersecteaza(f.bb, bb)) continue;
+        const [x, y] = centruBB(f.bb);
+        rez.push({ f, culoare: u.culoare, d: (x - cam3d.lon) ** 2 + (y - cam3d.lat) ** 2 });
+      }
+    }
+    return rez.sort((a, b) => a.d - b.d).slice(0, 300).map(({ f, culoare }) => ({ f, culoare }));
+  }, [mod3d, cam3d, lista, incarcate, ascunse, straturi.parcele]);
+
+  const limite3d = useMemo(() => {
+    if (!mod3d || !cam3d || !lim) return [];
+    const bb = cutie(cam3d.lon, cam3d.lat, Math.min(cam3d.range * 3, 40000));
+    return lim.uat.features
+      .filter((f) => { const u = dupaId.get(f.properties.id); return u && intersecteaza(u.bbox, bb); })
+      .flatMap((f) => (f.geometry.type === "Polygon" ? [f.geometry.coordinates[0]] : f.geometry.coordinates.map((p) => p[0])));
+  }, [mod3d, cam3d, lim, dupaId]);
+
+  const heading3d = cam3d?.heading ?? 0;
+  const zbor3d = useMemo((): Zbor3D | null => {
+    if (!tinta) return null;
+    let lon: number, lat: number, range: number;
+    if (tinta.bb) {
+      const [w, s, e, n] = tinta.bb;
+      [lon, lat] = centruBB(tinta.bb);
+      range = Math.max(200, Math.max((e - w) * 111320 * Math.cos((lat * Math.PI) / 180), (n - s) * 111320) * 2.5);
+    } else if (tinta.centru) {
+      [lon, lat] = tinta.centru;
+      range = Math.max(200, metriPePixel(tinta.zoom ?? 16, lat) * window.innerHeight);
+    } else return null;
+    const [clon, clat] = centru3d(lon, lat, range, heading3d);
+    return { id: tinta.id, lon: clon, lat: clat, range };
+    // direcția camerei se citește doar la o țintă nouă
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tinta]);
 
   const getTooltip = useCallback((info: PickingInfo) => {
     const f = info.object as Parcela | undefined;
@@ -490,8 +703,28 @@ export default function Harta() {
         radiusUnits: "pixels", getRadius: 7, getFillColor: [255, 40, 40, 255],
         stroked: true, getLineColor: ALB, lineWidthUnits: "pixels", getLineWidth: 2,
       }),
+      // măsurare: suprafața (≥ 3 puncte), linia cu contur negru, punctele, lungimile pe segmente
+      new GeoJsonLayer({
+        id: "masura-arie", stroked: false, filled: true, getFillColor: [255, 255, 255, 45],
+        data: (puncte.length >= 3 ? [{ type: "Feature", properties: {}, geometry: { type: "Polygon", coordinates: [[...puncte, puncte[0]]] } }] : []) as never,
+      }),
+      ...([[0, 0, 0, 220, 6], [255, 255, 255, 255, 3]] as const).map(([r, g, b, a, w], i) => new PathLayer<[number, number][]>({
+        id: `masura-linie-${i}`, data: puncte.length >= 2 ? [puncte] : [], getPath: (d) => d,
+        getColor: [r, g, b, a], widthUnits: "pixels", getWidth: w, capRounded: true, jointRounded: true,
+      })),
+      new ScatterplotLayer<[number, number]>({
+        id: "masura-puncte", data: puncte, getPosition: (d) => d, radiusUnits: "pixels", getRadius: 5,
+        getFillColor: ALB, stroked: true, getLineColor: [0, 0, 0, 255], lineWidthUnits: "pixels", getLineWidth: 2,
+      }),
+      new TextLayer<{ p: [number, number]; t: string }>({
+        id: "masura-etichete", ...textComun, getSize: 13, getColor: ALB, fontWeight: 700, getPixelOffset: [0, -12],
+        data: masura.segmente.map((l, i) => ({
+          p: [(puncte[i][0] + puncte[i + 1][0]) / 2, (puncte[i][1] + puncte[i + 1][1]) / 2] as [number, number], t: fmtDist(l),
+        })),
+        getPosition: (d) => d.p, getText: (d) => d.t,
+      }),
     ] as Layer[];
-  }, [lista, lim, incarcate, sectoare, straturi, ascunse, aproape, departe, zoom, selectat, marker]);
+  }, [lista, lim, incarcate, sectoare, straturi, ascunse, aproape, departe, zoom, selectat, marker, puncte, masura]);
 
   const comuta = (k: keyof Straturi) => setStraturi((s) => ({ ...s, [k]: !s[k] }));
   const comutaUat = (id: string) => setAscunse((s) => {
@@ -504,10 +737,10 @@ export default function Harta() {
   const seIncarca = Object.entries(stari).filter(([, v]) => v === "incarca").map(([k]) => numeUat(k));
 
   return (
-    <APIProvider apiKey={CHEIE} language="ro" region="RO">
-      <div className={styles.ecran}>
+    <div className={styles.ecran}>
         <GMap
           className={styles.harta}
+          style={mod3d ? { visibility: "hidden" } : undefined}
           defaultCenter={CENTRU}
           defaultZoom={10}
           defaultTilt={0}
@@ -515,9 +748,15 @@ export default function Harta() {
           gestureHandling="greedy"
           clickableIcons={false}
           disableDefaultUI
-          zoomControl={!restrans || !esteMobil()}
+          zoomControl={!esteMobil()}
+          zoomControlOptions={{ position: ControlPosition.RIGHT_BOTTOM }}
+          streetViewControl={!esteMobil()}
+          streetViewControlOptions={{ position: ControlPosition.RIGHT_BOTTOM }}
           scaleControl
+          disableDoubleClickZoom={masurare}
+          draggableCursor={masurare ? "crosshair" : undefined}
           onCameraChanged={onCamera}
+          onClick={onMapClick}
           reuseMaps
         >
           {/* fără cheie validă Google nu dă proiecția hărții și deck.gl n-are peste ce desena */}
@@ -525,7 +764,71 @@ export default function Harta() {
           <Zbor tinta={tinta} />
         </GMap>
 
-        <aside className={styles.panou} data-restrans={restrans || undefined}>
+        {mod3d && start3d && (
+          <Harta3D
+            start={start3d}
+            zbor={zbor3d}
+            alt={altLa}
+            mode={straturi.eticheteGoogle ? "HYBRID" : "SATELLITE"}
+            parcele={parcele3d}
+            selectat={selectat}
+            culoareSelectat={(selectat && dupaId.get(selectat.u)?.culoare) || [0, 229, 255]}
+            limite={limite3d}
+            masura={puncte}
+            onClickLoc={onClickLoc3d}
+            onCamera={onCamera3d}
+          />
+        )}
+
+        {inSV ? (
+          <button type="button" className={styles.inapoi} onClick={() => map?.getStreetView().setVisible(false)}>
+            ← Înapoi la hartă
+          </button>
+        ) : (
+          <div className={styles.unelte} role="toolbar" aria-label="Unelte hartă">
+            <button type="button" aria-pressed={mod3d} onClick={() => void comuta3d()} title={mod3d ? "Înapoi la harta 2D" : "Vedere 3D: rotește și înclină"}>
+              {mod3d ? "2D" : "3D"}
+            </button>
+            <button type="button" onClick={streetViewAici}
+              title={selectat ? "Street View spre imobilul selectat" : "Street View în centrul hărții (sau trage omulețul pe o stradă)"}
+              aria-label="Street View">
+              <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
+                <circle cx="12" cy="4.5" r="2.5" fill="currentColor" />
+                <path d="M9 8.5h6l1 7h-2.2l-.5 6.5h-3.6l-.5-6.5H7z" fill="currentColor" />
+              </svg>
+            </button>
+            <button type="button" aria-pressed={masurare} onClick={comutaMasurare} title="Măsoară distanțe și suprafețe" aria-label="Măsoară">
+              <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
+                <path d="M3 16.5 16.5 3 21 7.5 7.5 21z" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />
+                <path d="M7 13l2 2M10 10l2.5 2.5M13 7l2 2" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+              </svg>
+            </button>
+          </div>
+        )}
+
+        {masurare && !inSV && (
+          <div className={styles.masura} role="status">
+            <div>
+              <b>Măsurare</b>{" "}
+              {puncte.length < 2 ? (
+                <span className={styles.mic}>{esteMobil() ? "Atinge" : "Dă click pe"} hartă ca să pui puncte.</span>
+              ) : (
+                <span>
+                  total <b>{fmtDist(masura.total)}</b>
+                  {masura.segmente.length > 1 && <> · ultimul {fmtDist(masura.segmente[masura.segmente.length - 1])}</>}
+                  {masura.arie != null && <> · suprafață <b>{fmtArie(masura.arie)}</b></>}
+                </span>
+              )}
+            </div>
+            <div className={styles.butoaneMasura}>
+              <button type="button" onClick={() => setPuncte((p) => p.slice(0, -1))} disabled={!puncte.length}>Anulează ultimul</button>
+              <button type="button" onClick={() => setPuncte([])} disabled={!puncte.length}>Șterge</button>
+              <button type="button" onClick={comutaMasurare}>Gata</button>
+            </div>
+          </div>
+        )}
+
+        <aside className={styles.panou} data-restrans={restrans || undefined} hidden={inSV}>
           <div className={styles.antet}>
             <h1 className={styles.titlu}>Imobile OCPI · Timiș</h1>
             <button type="button" className={styles.comutaPanou} onClick={() => setRestrans((r) => !r)}
@@ -566,7 +869,8 @@ export default function Harta() {
           {seIncarca.length > 0 && <p className={styles.mic}>Se încarcă: {seIncarca.join(", ")}…</p>}
 
           {selectat && lista && (
-            <Detalii f={selectat} uat={dupaId.get(selectat.u)} d={incarcate[selectat.u]} lim={lim} onInchide={() => setSelectat(null)} />
+            <Detalii f={selectat} uat={dupaId.get(selectat.u)} d={incarcate[selectat.u]} lim={lim} onInchide={() => setSelectat(null)}
+              onStreetView={() => { const c = centruBB(selectat.bb); void deschideStreetView(c[0], c[1], c); }} />
           )}
 
           <div className={styles.extra}>
@@ -620,14 +924,13 @@ export default function Harta() {
             </p>
           </div>
         </aside>
-        <Cursor lim={lim} nume={numeUat} />
-      </div>
-    </APIProvider>
+        {!mod3d && !inSV && <Cursor lim={lim} nume={numeUat} />}
+    </div>
   );
 }
 
-function Detalii({ f, uat, d, lim, onInchide }: {
-  f: Parcela; uat?: UatInfo; d?: DateUat; lim: LimiteToate | null; onInchide: () => void;
+function Detalii({ f, uat, d, lim, onInchide, onStreetView }: {
+  f: Parcela; uat?: UatInfo; d?: DateUat; lim: LimiteToate | null; onInchide: () => void; onStreetView: () => void;
 }) {
   const p = f.properties;
   const [lon, lat] = [(f.bb[0] + f.bb[2]) / 2, (f.bb[1] + f.bb[3]) / 2];
@@ -674,6 +977,7 @@ function Detalii({ f, uat, d, lim, onInchide }: {
       </dl>
       {!p.nr && <p className={styles.mic}>Probabil parcela-mamă dinaintea unei dezmembrări sau un contur vechi.</p>}
       <div className={styles.butoane}>
+        <button type="button" className={styles.principal} onClick={onStreetView}>Street View</button>
         <a href={`https://www.google.com/maps/search/?api=1&query=${lat},${lon}`} target="_blank" rel="noopener noreferrer">
           Google Maps
         </a>

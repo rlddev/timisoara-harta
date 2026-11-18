@@ -189,6 +189,112 @@
   background: #2a313c;
 }
 
+.butoane button.principal {
+  background: #00a3c4;
+}
+
+/* unelte pe hartă: 3D, Street View, măsurare (dreapta sus) */
+.unelte,
+.rotire {
+  position: absolute;
+  right: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  z-index: 2;
+}
+
+.unelte {
+  top: 12px;
+}
+
+.rotire {
+  top: 170px;
+}
+
+.unelte button,
+.rotire button {
+  width: 44px;
+  height: 44px;
+  display: grid;
+  place-items: center;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 10px;
+  background: rgba(16, 19, 25, 0.88);
+  color: #e9ecf1;
+  font: 700 15px system-ui, sans-serif;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+  cursor: pointer;
+}
+
+.unelte button[aria-pressed="true"] {
+  background: #00a3c4;
+  border-color: #00a3c4;
+  color: #fff;
+}
+
+.rotire button {
+  font-size: 18px;
+}
+
+.inapoi {
+  position: absolute;
+  top: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 3;
+  padding: 10px 16px;
+  border: 0;
+  border-radius: 22px;
+  background: rgba(16, 19, 25, 0.92);
+  color: #fff;
+  font: 600 14px system-ui, sans-serif;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.4);
+  cursor: pointer;
+}
+
+.masura {
+  position: absolute;
+  top: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 2;
+  max-width: min(520px, calc(100vw - 140px));
+  padding: 10px 14px;
+  border-radius: 12px;
+  background: rgba(16, 19, 25, 0.92);
+  color: #e9ecf1;
+  font-size: 13px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.4);
+}
+
+.butoaneMasura {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.butoaneMasura button {
+  padding: 6px 10px;
+  border: 0;
+  border-radius: 8px;
+  background: #2a313c;
+  color: #fff;
+  font: inherit;
+  cursor: pointer;
+}
+
+.butoaneMasura button:last-child {
+  background: #00a3c4;
+  font-weight: 600;
+}
+
+.butoaneMasura button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
 .mic {
   margin: 6px 0 0;
   color: #9aa4b2;
@@ -333,5 +439,27 @@
 
   .cursor {
     display: none;
+  }
+
+  .unelte {
+    top: 10px;
+    right: 10px;
+  }
+
+  .rotire {
+    top: 166px;
+    right: 10px;
+  }
+
+  .masura {
+    left: 10px;
+    right: 64px;
+    transform: none;
+    max-width: none;
+    font-size: 14px;
+  }
+
+  .butoaneMasura button {
+    padding: 9px 12px;
   }
 }

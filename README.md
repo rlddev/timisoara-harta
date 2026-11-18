@@ -15,7 +15,16 @@ Ce poți face:
 - **straturi**: imobile (în culoarea UAT-ului, vecinii au culori diferite), numere (de la zoom 16,5),
   construcții, contururi fără număr (versiuni vechi), intravilan (2021), sectoare cadastrale, limitele
   UAT (linia albă), etichetele Google;
-- pe desktop, jos-dreapta: UAT-ul, intravilan/extravilan și coordonatele cursorului.
+- pe desktop, jos-dreapta: UAT-ul, intravilan/extravilan și coordonatele cursorului;
+- **Street View**: omulețul Google (jos-dreapta, pe desktop) se trage pe o stradă ca în Google Maps; butonul
+  cu omuleț din dreapta-sus sau „Street View” din detaliile imobilului deschid panorama Google cea mai
+  apropiată (≤ 200 m), orientată spre imobil; „← Înapoi la hartă” închide;
+- **3D**: butonul „3D” trece pe harta fotorealistă Google (Maps JavaScript 3D) – rotire și înclinare cu
+  gesturile hărții (desktop: click dreapta / Ctrl + tragere; telefon: două degete) sau din butoanele
+  ⟲ ⟳ ⦿ N; imobilele din jur, limita UAT și imobilul selectat sunt contururi pe teren, click pe teren
+  selectează imobilul;
+- **măsurare** (riglă): click / atingere pe hartă pune puncte – lungimea fiecărui segment, totalul și
+  suprafața (≥ 3 puncte), calculate în planul Stereo 70; merge și în 3D.
 
 Imobilele unui UAT se încarcă abia când e în vizor (zoom ≥ 13); la pornire se încarcă doar lista
 UAT-urilor și limitele lor (~0,5 MB).
@@ -28,6 +37,8 @@ npm run dev -- -p 3110
 ```
 
 `.env.local`: `NEXT_PUBLIC_GOOGLE_MAPS_API_KEY=AIza…` (Google Cloud → Maps JavaScript API → cheie).
+Street View și harta 3D folosesc tot Maps JavaScript API (SKU-uri separate – Street View dinamic,
+hărți 3D – fiecare cu cota lui gratuită lunară).
 Cheia ajunge în codul paginii: restricționeaz-o la domeniile site-ului (Application restrictions →
 Websites, ex. `https://<proiect>.vercel.app/*`, `http://localhost:3110/*`) și doar la Maps JavaScript API.
 
@@ -45,6 +56,8 @@ python scripts/inspecteaza.py date-sursa/uat/*.dxf
 python scripts/genereaza_date.py --toate          # sau --uat giroc dumbravita
 # 4. lista UAT-urilor (culori diferite la vecini) și limitele de ansamblu
 python scripts/combina.py
+# 5. grila de altitudini pentru camera 3D (AWS Terrain Tiles, date deschise; o singură dată)
+python scripts/altitudini.py
 # (opțional) alinierea pe imaginea satelit Esri
 python scripts/verifica_aliniere.py timisoara 45.7231938 21.1586212 date-sursa/aliniere.png
 ```

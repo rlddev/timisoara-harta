@@ -76,6 +76,52 @@ export function intersecteaza(a: BBox, b: BBox): boolean {
   return a[0] <= b[2] && a[2] >= b[0] && a[1] <= b[3] && a[3] >= b[1];
 }
 
+/** Măsurare în planul Stereo 70 (ca la cadastru): lungimile segmentelor, totalul și aria (≥ 3 puncte). */
+export function masoara(puncte: [number, number][]): { segmente: number[]; total: number; arie: number | null } {
+  const s = puncte.map(([lon, lat]) => laStereo70(lon, lat));
+  const segmente = s.slice(1).map((p, i) => Math.hypot(p[0] - s[i][0], p[1] - s[i][1]));
+  let arie: number | null = null;
+  if (s.length >= 3) {
+    let a = 0;
+    for (let i = 0; i < s.length; i++) {
+      const [x1, y1] = s[i];
+      const [x2, y2] = s[(i + 1) % s.length];
+      a += x1 * y2 - x2 * y1;
+    }
+    arie = Math.abs(a) / 2;
+  }
+  return { segmente, total: segmente.reduce((a, b) => a + b, 0), arie };
+}
+
+/** Direcția (grade față de nord, în sensul acelor de ceas) de la punctul 1 la punctul 2. */
+export function directie(lon1: number, lat1: number, lon2: number, lat2: number): number {
+  const dx = (lon2 - lon1) * Math.cos((lat1 * Math.PI) / 180);
+  const dy = lat2 - lat1;
+  return ((Math.atan2(dx, dy) * 180) / Math.PI + 360) % 360;
+}
+
+/** public/data/altitudini.json (scripts/altitudini.py): grilă regulată, rânduri de la sud la nord. */
+export type GrilaAltitudini = { o: [number, number]; pas: number; n: [number, number]; z: number[] };
+
+/** Altitudinea terenului (m, nivelul mării), interpolare biliniară; 90 m în afara grilei. */
+export function altitudine(g: GrilaAltitudini | null, lon: number, lat: number): number {
+  if (!g) return 90;
+  const fx = (lon - g.o[0]) / g.pas;
+  const fy = (lat - g.o[1]) / g.pas;
+  const [nx, ny] = g.n;
+  if (fx < 0 || fy < 0 || fx >= nx - 1 || fy >= ny - 1) return 90;
+  const i = Math.floor(fx), j = Math.floor(fy), tx = fx - i, ty = fy - j;
+  const z = (a: number, b: number) => g.z[b * nx + a];
+  return (z(i, j) * (1 - tx) + z(i + 1, j) * tx) * (1 - ty) + (z(i, j + 1) * (1 - tx) + z(i + 1, j + 1) * tx) * ty;
+}
+
+/** Metri pe pixel la un zoom Web Mercator. */
+export const metriPePixel = (zoom: number, lat: number) => (156543.03392 * Math.cos((lat * Math.PI) / 180)) / 2 ** zoom;
+/** Distanța camerei 3D echivalentă unui zoom 2D, pentru o fereastră de înălțime h px. */
+export const distantaDinZoom = (zoom: number, lat: number, h: number) => metriPePixel(zoom, lat) * h;
+export const zoomDinDistanta = (range: number, lat: number, h: number) =>
+  Math.log2((156543.03392 * Math.cos((lat * Math.PI) / 180) * h) / Math.max(range, 1));
+
 export function unireBBox(lista: BBox[]): BBox {
   return [
     Math.min(...lista.map((b) => b[0])), Math.min(...lista.map((b) => b[1])),
