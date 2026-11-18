@@ -24,7 +24,13 @@ Ce poți face:
   ⟲ ⟳ ⦿ N; imobilele din jur, limita UAT și imobilul selectat sunt contururi pe teren, click pe teren
   selectează imobilul;
 - **măsurare** (riglă): click / atingere pe hartă pune puncte – lungimea fiecărui segment, totalul și
-  suprafața (≥ 3 puncte), calculate în planul Stereo 70; merge și în 3D.
+  suprafața (≥ 3 puncte), calculate în planul Stereo 70; merge și în 3D;
+- **oferte de vânzare** (Moșnița Nouă, teren extravilan, Legea 17/2014): lista din panoul din stânga
+  (deschise / toate, cu €/m², preț total și termenul pentru preemptori), puncte cu prețul pe hartă (verde =
+  deschisă, portocaliu = potențial cumpărător, albastru = acceptată, gri = închisă); click pe ofertă duce
+  la imobil și arată detaliile, cu linkul la pagina oficială a ofertei; sub listă, linkul spre registru (sursa);
+- **obiective Google** (magazine, firme, monumente): click deschide fereastra lor ca în Google Maps; în 3D
+  numele apare doar dacă pe cheie e activat și „Places API (New)”, altfel rămâne linkul spre Google Maps.
 
 Imobilele unui UAT se încarcă abia când e în vizor (zoom ≥ 13); la pornire se încarcă doar lista
 UAT-urilor și limitele lor (~0,5 MB).
@@ -58,6 +64,10 @@ python scripts/genereaza_date.py --toate          # sau --uat giroc dumbravita
 python scripts/combina.py
 # 5. grila de altitudini pentru camera 3D (AWS Terrain Tiles, date deschise; o singură dată)
 python scripts/altitudini.py
+# 6. ofertele de vânzare din registrul extravilanagricol.ro (anul curent), legate de imobile după
+#    numărul cadastral / CF; curs EUR de la BCE. Se schimbă zilnic: rulează din nou, apoi deploy.
+python scripts/oferte.py                         # implicit Moșnița Nouă
+python scripts/oferte.py --uat mosnita-noua --localitate "Mosnita Noua" --ani 2025 2026
 # (opțional) alinierea pe imaginea satelit Esri
 python scripts/verifica_aliniere.py timisoara 45.7231938 21.1586212 date-sursa/aliniere.png
 ```
@@ -73,6 +83,10 @@ Straturi din DWG: `ImobileE3` (contururi eTerra, cu versiuni vechi suprapuse), `
 (numerele), `ConstructiiE3`, `Intravilan_Iulie_2021`, `Sector_Cadastral la data de 05.05.2022`.
 Reguli: un număr aparține celui mai mic contur care îl conține; contururile fără număr propriu sunt
 „vechi”; imobilele al căror centru cade în afara limitei UAT sunt scoase (ar dubla UAT-ul vecin).
+
+`public/data/oferte.json` păstrează doar datele ofertei (număr, dată, nr. cadastral/CF, tarla, suprafață,
+preț, stare, termen, numărul de acceptări și prețul acceptat, linkul oficial), fără numele, telefoanele
+sau e-mailurile vânzătorilor și preemptorilor.
 
 Format (`public/data/<uat>/`): coordonate WGS84 întregi la 1e-6 grade (~10 cm), relative la o origine,
 delta pe inel – `parcele.json` `{o, k, f: [[nr|0, arie, inele, nr2|0, vechi|0]]}`, `constructii.json`,

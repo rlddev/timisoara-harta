@@ -193,6 +193,137 @@
   background: #00a3c4;
 }
 
+/* fereastra unui obiectiv Google în 3D */
+.poi {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  max-width: 240px;
+  color: #202124;
+  font: 13px system-ui, sans-serif;
+}
+
+.poi b {
+  font-size: 14px;
+}
+
+.poi span {
+  color: #5f6368;
+}
+
+.poi a {
+  margin-top: 4px;
+  color: #1a73e8;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+/* oferte de vânzare */
+.oferte summary {
+  font-weight: 600;
+}
+
+.filtru {
+  display: flex;
+  gap: 6px;
+  margin: 8px 0 6px;
+}
+
+.filtru button {
+  padding: 5px 10px;
+  border: 1px solid #3a414d;
+  border-radius: 999px;
+  background: none;
+  color: #c9d1dc;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.filtru button[aria-pressed="true"] {
+  border-color: #00a3c4;
+  background: rgba(0, 163, 196, 0.2);
+  color: #fff;
+}
+
+.listaOferte {
+  max-height: 300px;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  list-style: none;
+}
+
+.listaOferte button {
+  display: grid;
+  grid-template-columns: 12px 1fr auto;
+  grid-template-areas: "punct cap pret" "punct stare pret";
+  align-items: center;
+  gap: 0 8px;
+  width: 100%;
+  padding: 6px 6px;
+  border: 0;
+  border-radius: 8px;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.listaOferte button:hover,
+.listaOferte button[aria-current="true"] {
+  background: rgba(255, 255, 255, 0.07);
+}
+
+.listaOferte i {
+  grid-area: punct;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.6);
+}
+
+.ofertaCap {
+  grid-area: cap;
+  display: flex;
+  gap: 6px;
+  align-items: baseline;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ofertaCap span,
+.ofertaStare {
+  color: #9aa4b2;
+  font-size: 12px;
+}
+
+.ofertaStare {
+  grid-area: stare;
+}
+
+.ofertaPret {
+  grid-area: pret;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  font-variant-numeric: tabular-nums;
+}
+
+.ofertaPret span {
+  color: #9aa4b2;
+  font-size: 12px;
+}
+
+.cardOferta {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid rgba(255, 255, 255, 0.12);
+}
+
 /* unelte pe hartă: 3D, Street View, măsurare (dreapta sus) */
 .unelte,
 .rotire {
@@ -372,6 +503,10 @@
   margin: 12px 0 0;
   color: #7f8896;
   font-size: 11px;
+}
+
+.sursa a {
+  color: #9fd8e6;
 }
 
 .cursor {

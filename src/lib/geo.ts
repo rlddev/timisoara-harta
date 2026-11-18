@@ -40,6 +40,21 @@ export type UatInfo = {
   vecini: string[];
 };
 
+/** public/data/oferte.json (scripts/oferte.py): ofertele de vânzare teren extravilan (Legea 17/2014). */
+export type StareOferta = "deschisa" | "potential" | "acceptata" | "inchisa";
+export type Oferta = {
+  id: number; an: number; nr: string; nc: string | null; cf: string | null; tarla: string | null; parcela: string | null;
+  categorie: string | null; s: number | null; pret: number | null; moneda: string | null; status: string | null;
+  limita: string | null; stare: StareOferta; preemptori: number; acceptari: number; pret_acceptat: number | null;
+  potentiali: number; rezolutie: string | null; url: string; p: [number, number] | null; aprox?: boolean;
+};
+export type OferteUat = {
+  uat: string; nume: string; actualizat: string; sursa: string;
+  /** pagina publică a registrului pentru localitate */
+  link?: string;
+  curs: { eur: number; data: string; sursa: string }; oferte: Oferta[];
+};
+
 /** Fișierele compacte din scripts/genereaza_date.py: o = origine [lon, lat], k = 1e6, inel delta. */
 export type Compact<T> = { o: [number, number]; k: number; f: T[] };
 export type FParcela = [string | 0, number, number[][], (string[] | 0)?, (string[] | 0)?];

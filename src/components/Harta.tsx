@@ -9,7 +9,7 @@ import {
   altitudine, bboxInel, decInel, decPoligon, decPunct, directie, distantaDinZoom, inBBox, inGeom, inPoligon, interpreteaza,
   intersecteaza, laStereo70, masoara, metriPePixel, unireBBox, zoomDinDistanta,
   type BBox, type Compact, type Constructie, type Eticheta, type FConstructie, type FisierSectoare, type FNumar, type FParcela,
-  type GrilaAltitudini, type LimiteToate, type Parcela, type Poligon, type UatInfo,
+  type GrilaAltitudini, type LimiteToate, type Oferta, type OferteUat, type Parcela, type Poligon, type StareOferta, type UatInfo,
 } from "@/lib/geo";
 import Harta3D, { type Camera3D, type Zbor3D } from "./Harta3D";
 import styles from "./harta.module.css";
@@ -36,9 +36,25 @@ type DateUat = {
 type Sectoare = { l: { type: "Feature"; properties: object; geometry: Poligon }[]; n: Eticheta[] };
 type Straturi = {
   parcele: boolean; istorice: boolean; constructii: boolean; numere: boolean;
-  intravilan: boolean; sectoare: boolean; nuanta: boolean; eticheteGoogle: boolean;
+  intravilan: boolean; sectoare: boolean; nuanta: boolean; eticheteGoogle: boolean; oferte: boolean;
 };
 type Tinta = { id: number; bb?: BBox; centru?: [number, number]; zoom?: number };
+/** O ofertă de vânzare împreună cu UAT-ul și cursul EUR din fișierul ei. */
+type OfertaLoc = { o: Oferta; u: string; curs: number };
+const CULOARE_STARE: Record<StareOferta, [number, number, number]> = {
+  deschisa: [70, 230, 110], potential: [255, 170, 40], acceptata: [0, 200, 255], inchisa: [160, 160, 160],
+};
+const TEXT_STARE: Record<StareOferta, string> = {
+  deschisa: "deschisă", potential: "potențial cumpărător", acceptata: "acceptată", inchisa: "închisă",
+};
+const REGISTRU_OFERTE = "https://www.extravilanagricol.ro/";
+const esteDeschisa = (o: Oferta) => o.stare === "deschisa" || o.stare === "potential";
+/** Numărul cadastral al ofertei (unele oferte au tarlaua în câmpul cadastral și numărul doar la CF). */
+const nrOferta = (o: Oferta) => [o.nc, o.cf].find((n) => n && /^\d+$/.test(n)) ?? null;
+const titluOferta = (o: Oferta) => {
+  const nr = nrOferta(o);
+  return nr ? `CF ${nr}` : o.nc && o.nc !== "A" ? o.nc : o.tarla ? `Tarla ${o.tarla}` : `Oferta ${o.nr}`;
+};
 type Gasit = { u: string; n: string; p: [number, number] };
 type Vizor = { zoom: number; bb: BBox };
 
@@ -95,6 +111,7 @@ function undeE(lim: LimiteToate | null, lon: number, lat: number): { uat: string
   return { uat: id, intravilan: lim.intravilan.features.some((x) => x.properties.id === id && inGeom(x.geometry, lon, lat)) };
 }
 
+const fmt0 = new Intl.NumberFormat("ro-RO", { maximumFractionDigits: 0 });
 const fmtDist = (m: number) => (m < 1000 ? `${fmt.format(m)} m` : `${new Intl.NumberFormat("ro-RO", { maximumFractionDigits: 2 }).format(m / 1000)} km`);
 const fmtArie = (a: number) => (a < 10000 ? `${fmt.format(a)} mp` : `${fmt.format(a)} mp (${new Intl.NumberFormat("ro-RO", { maximumFractionDigits: 2 }).format(a / 10000)} ha)`);
 
@@ -127,7 +144,17 @@ function DeckOverlay({ layers, onClick, getTooltip }: {
   getTooltip: (info: PickingInfo) => { text: string; style: Record<string, string> } | null;
 }) {
   const map = useMap();
-  const overlay = useMemo(() => new GoogleMapsOverlay({ interleaved: false }), []);
+  const overlay = useMemo(() => {
+    const o = new GoogleMapsOverlay({ interleaved: false });
+    // Google cheamă uneori draw() fără proiecție (ex. redimensionare cât harta 2D e ascunsă sub cea 3D),
+    // iar deck.gl ar arunca „fromLatLngToDivPixel of null”: sărim cadrul acela.
+    const x = o as unknown as { _onDrawRaster: () => void; _overlay?: google.maps.OverlayView };
+    const deseneaza = x._onDrawRaster.bind(o);
+    x._onDrawRaster = () => {
+      if (x._overlay?.getProjection()) deseneaza();
+    };
+    return o;
+  }, []);
   useEffect(() => {
     if (!map) return;
     // Atașăm overlay-ul abia când harta e gata: înainte proiecția poate fi null și deck.gl ar arunca.
@@ -229,7 +256,7 @@ function Continut() {
   const [vizor, setVizor] = useState<Vizor | null>(null);
   const [straturi, setStraturi] = useState<Straturi>({
     parcele: true, istorice: false, constructii: true, numere: true,
-    intravilan: false, sectoare: false, nuanta: true, eticheteGoogle: true,
+    intravilan: false, sectoare: false, nuanta: true, eticheteGoogle: true, oferte: true,
   });
   const [ascunse, setAscunse] = useState<Set<string>>(new Set());
   const [selectat, setSelectat] = useState<Parcela | null>(null);
@@ -247,8 +274,44 @@ function Continut() {
   const [inSV, setInSV] = useState(false);
   const [masurare, setMasurare] = useState(false);
   const [puncte, setPuncte] = useState<[number, number][]>([]);
+  // ofertele de vânzare (Legea 17/2014)
+  const [oferte, setOferte] = useState<OferteUat[]>([]);
+  const [ofertaSel, setOfertaSel] = useState<OfertaLoc | null>(null);
+  const [doarDeschise, setDoarDeschise] = useState(true);
+  // click pe un obiectiv Google (POI): Google își deschide fereastra, nu se schimbă imobilul selectat
+  const clickPoi = useRef(0);
 
   const zboaraLa = useCallback((t: Omit<Tinta, "id">) => setTinta({ ...t, id: Date.now() }), []);
+
+  useEffect(() => {
+    ia<OferteUat[]>("/data/oferte.json").then(setOferte, () => undefined);
+  }, []);
+
+  const toateOfertele = useMemo<OfertaLoc[]>(
+    () => oferte.flatMap((f) => f.oferte.map((o) => ({ o, u: f.uat, curs: f.curs.eur }))), [oferte]);
+  const ofertePeNr = useMemo(() => {
+    const m = new Map<string, OfertaLoc[]>();
+    for (const x of toateOfertele) {
+      for (const n of [x.o.nc, x.o.cf]) {
+        if (n && /^\d+$/.test(n)) m.set(`${x.u}:${n}`, [...(m.get(`${x.u}:${n}`) ?? []), x]);
+      }
+    }
+    return m;
+  }, [toateOfertele]);
+  /** Ofertele pentru un imobil (după numărul cadastral, inclusiv al doilea număr). */
+  const ofertePentru = useCallback((f: Parcela | null): OfertaLoc[] => {
+    if (!f) return [];
+    const nr = [f.properties.nr, ...(f.properties.nr2 ?? [])].filter(Boolean) as string[];
+    return [...new Set(nr.flatMap((n) => ofertePeNr.get(`${f.u}:${n}`) ?? []))];
+  }, [ofertePeNr]);
+  /** Ofertele din listă (filtrul „deschise”), cele mai apropiate de termen primele. */
+  const oferteLista = useMemo(() => {
+    const zi = (d: string | null) => (d ? d.split(".").reverse().join("") : "99999999");
+    return toateOfertele
+      .filter((x) => !doarDeschise || esteDeschisa(x.o))
+      .sort((a, b) => (esteDeschisa(a.o) === esteDeschisa(b.o) ? zi(a.o.limita).localeCompare(zi(b.o.limita)) : esteDeschisa(a.o) ? -1 : 1));
+  }, [toateOfertele, doarDeschise]);
+  const oferteHarta = useMemo(() => oferteLista.filter((x) => x.o.p), [oferteLista]);
   const dupaId = useMemo(() => new Map((lista ?? []).map((u) => [u.id, u])), [lista]);
   const numeUat = useCallback((u: string) => dupaId.get(u)?.nume ?? u, [dupaId]);
 
@@ -439,14 +502,39 @@ function Continut() {
     return () => clearTimeout(t);
   }, [lista, lim, cauta]);
 
+  /** Arată o ofertă: o selectează, zboară la ea și selectează imobilul ei (dacă e localizat). */
+  const mergiLaOferta = useCallback((x: OfertaLoc) => {
+    setOfertaSel(x);
+    setVariante([]);
+    if (!x.o.p) {
+      setSelectat(null);
+      return;
+    }
+    setMarker(null);
+    zboaraLa({ centru: x.o.p, zoom: 17.5 });
+    if (!x.o.aprox && nrOferta(x.o)) {
+      deSelectat.current = { u: x.u, p: x.o.p, nr: nrOferta(x.o)! };
+      void incarcaUat(x.u);
+    } else setSelectat(null);
+    if (esteMobil()) setRestrans(true);
+  }, [zboaraLa, incarcaUat]);
+
   const onClick = useCallback((info: PickingInfo) => {
     if (masurare) return; // în modul măsurare click-ul pune puncte (onMapClick)
+    if (Date.now() - clickPoi.current < 300) return; // click pe un obiectiv Google: Google deschide fereastra lui
+    if (info.layer?.id === "oferte" && info.object) {
+      mergiLaOferta(info.object as OfertaLoc);
+      return;
+    }
     const f = info.object as Parcela | undefined;
-    setSelectat(f && "bb" in f ? f : null);
-  }, [masurare]);
+    const p = f && "bb" in f ? f : null;
+    setSelectat(p);
+    setOfertaSel(p ? ofertePentru(p)[0] ?? null : null);
+  }, [masurare, mergiLaOferta, ofertePentru]);
 
   // ---------------------------------------------------------------- măsurare
   const onMapClick = useCallback((ev: MapMouseEvent) => {
+    if (ev.detail.placeId) clickPoi.current = Date.now(); // vine înaintea click-ului din deck.gl
     const ll = ev.detail.latLng;
     if (!masurare || !ll) return;
     setPuncte((p) => [...p, [ll.lng, ll.lat]]);
@@ -609,14 +697,23 @@ function Continut() {
   }, [tinta]);
 
   const getTooltip = useCallback((info: PickingInfo) => {
+    const stil = { background: "rgba(15,18,24,.9)", color: "#fff", font: "12px system-ui", padding: "6px 8px", borderRadius: "6px" };
+    if (info.layer?.id === "oferte" && info.object) {
+      const { o, curs } = info.object as OfertaLoc;
+      const pm = o.pret && o.s ? o.pret / o.s : null;
+      return {
+        text: `Ofertă ${o.nr} · ${TEXT_STARE[o.stare]}${o.limita && esteDeschisa(o) ? ` până la ${o.limita}` : ""}\n` +
+          `${titluOferta(o)} · ${o.s ? fmt.format(o.s) + " mp" : ""}\n` +
+          (o.pret ? `${fmt0.format(o.pret)} lei (${fmt0.format(o.pret / curs)} €)` : "") +
+          (pm ? ` · ${fmt.format(pm / curs)} €/m²` : ""),
+        style: stil,
+      };
+    }
     const f = info.object as Parcela | undefined;
     if (!f || !("bb" in f)) return null;
     const p = f.properties;
     const cap = p.nr ? `${p.nr}${p.nr2 ? " / " + p.nr2.join(", ") : ""}` : "fără număr (contur vechi)";
-    return {
-      text: `${cap}\n${fmt.format(p.s)} mp · ${numeUat(f.u)}`,
-      style: { background: "rgba(15,18,24,.9)", color: "#fff", font: "12px system-ui", padding: "6px 8px", borderRadius: "6px" },
-    };
+    return { text: `${cap}\n${fmt.format(p.s)} mp · ${numeUat(f.u)}`, style: stil };
   }, [numeUat]);
 
   const onCamera = useCallback((ev: MapCameraChangedEvent) => {
@@ -698,6 +795,20 @@ function Continut() {
         // mărime în metri: la zoom mic numele se micșorează și nu se mai calcă între ele
         sizeUnits: "meters", getSize: 700, sizeMinPixels: 8, sizeMaxPixels: 18,
       }),
+      // ofertele de vânzare: un punct colorat după stare, ridicat deasupra etichetei cu numărul cadastral
+      // (oferta e pusă chiar în punctul etichetei), și prețul pe m² deasupra lui (de la zoom 14)
+      new TextLayer<OfertaLoc>({
+        id: "oferte", data: oferteHarta, visible: s.oferte, pickable: true, getPosition: (x) => x.o.p!,
+        getText: () => "●", getSize: (x) => (esteDeschisa(x.o) ? 22 : 17), getColor: (x) => rgb(CULOARE_STARE[x.o.stare]),
+        getPixelOffset: [0, -13], characterSet: ["●"], ...textComun, outlineWidth: 2,
+        updateTriggers: { getSize: oferteHarta, getColor: oferteHarta },
+      }),
+      new TextLayer<OfertaLoc>({
+        id: "oferte-pret", data: oferteHarta.filter((x) => x.o.pret && x.o.s), visible: s.oferte && zoom >= 14,
+        getPosition: (x) => x.o.p!, getText: (x) => `${fmt.format(x.o.pret! / x.o.s! / x.curs)} €/m²`,
+        getSize: 12, getColor: (x) => rgb(CULOARE_STARE[x.o.stare]), fontWeight: 700, getPixelOffset: [0, -31], ...textComun,
+        characterSet: "auto",
+      }),
       new ScatterplotLayer<[number, number]>({
         id: "marker", data: marker ? [marker] : [], getPosition: (d) => d,
         radiusUnits: "pixels", getRadius: 7, getFillColor: [255, 40, 40, 255],
@@ -724,7 +835,7 @@ function Continut() {
         getPosition: (d) => d.p, getText: (d) => d.t,
       }),
     ] as Layer[];
-  }, [lista, lim, incarcate, sectoare, straturi, ascunse, aproape, departe, zoom, selectat, marker, puncte, masura]);
+  }, [lista, lim, incarcate, sectoare, straturi, ascunse, aproape, departe, zoom, selectat, marker, puncte, masura, oferteHarta]);
 
   const comuta = (k: keyof Straturi) => setStraturi((s) => ({ ...s, [k]: !s[k] }));
   const comutaUat = (id: string) => setAscunse((s) => {
@@ -746,7 +857,7 @@ function Continut() {
           defaultTilt={0}
           mapTypeId={straturi.eticheteGoogle ? "hybrid" : "satellite"}
           gestureHandling="greedy"
-          clickableIcons={false}
+          clickableIcons={!masurare}
           disableDefaultUI
           zoomControl={!esteMobil()}
           zoomControlOptions={{ position: ControlPosition.RIGHT_BOTTOM }}
@@ -869,8 +980,77 @@ function Continut() {
           {seIncarca.length > 0 && <p className={styles.mic}>Se încarcă: {seIncarca.join(", ")}…</p>}
 
           {selectat && lista && (
-            <Detalii f={selectat} uat={dupaId.get(selectat.u)} d={incarcate[selectat.u]} lim={lim} onInchide={() => setSelectat(null)}
-              onStreetView={() => { const c = centruBB(selectat.bb); void deschideStreetView(c[0], c[1], c); }} />
+            <Detalii f={selectat} uat={dupaId.get(selectat.u)} d={incarcate[selectat.u]} lim={lim}
+              onInchide={() => { setSelectat(null); setOfertaSel(null); }}
+              onStreetView={() => { const c = centruBB(selectat.bb); void deschideStreetView(c[0], c[1], c); }}>
+              {ofertePentru(selectat).map((x) => <CardOferta key={x.o.id} x={x} />)}
+            </Detalii>
+          )}
+          {/* oferta aleasă din listă care nu are imobil pe hartă (număr nou / doar tarla) */}
+          {ofertaSel && !(selectat && ofertePentru(selectat).includes(ofertaSel)) && (
+            <section className={styles.detalii}>
+              <button type="button" className={styles.inchide} onClick={() => setOfertaSel(null)} aria-label="Închide">×</button>
+              <CardOferta x={ofertaSel} singur />
+              {!ofertaSel.o.p && <p className={styles.mic}>Imobilul nu e în ortoplanul OCPI (număr nou sau doar tarla), deci nu apare pe hartă.</p>}
+              {ofertaSel.o.aprox && <p className={styles.mic}>Poziție aproximativă: eticheta tarlalei / avizului din ortoplan.</p>}
+            </section>
+          )}
+
+          {oferte.length > 0 && (
+            <details className={`${styles.straturi} ${styles.oferte}`} open={!esteMobil()}>
+              <summary>
+                Oferte de vânzare teren extravilan · {oferte.map((f) => f.nume).join(", ")}{" "}
+                <span className={styles.mic}>({toateOfertele.filter((x) => esteDeschisa(x.o)).length} deschise)</span>
+              </summary>
+              <div className={styles.filtru} role="group" aria-label="Filtru oferte">
+                <button type="button" aria-pressed={doarDeschise} onClick={() => setDoarDeschise(true)}>
+                  Deschise ({toateOfertele.filter((x) => esteDeschisa(x.o)).length})
+                </button>
+                <button type="button" aria-pressed={!doarDeschise} onClick={() => setDoarDeschise(false)}>
+                  Toate ({toateOfertele.length})
+                </button>
+              </div>
+              <ul className={styles.listaOferte}>
+                {oferteLista.map((x) => {
+                  const { o } = x;
+                  const pm = o.pret && o.s ? o.pret / o.s : null;
+                  return (
+                    <li key={o.id}>
+                      <button type="button" onClick={() => mergiLaOferta(x)} aria-current={ofertaSel?.o.id === o.id || undefined}>
+                        <i style={{ background: css(CULOARE_STARE[o.stare]) }} />
+                        <span className={styles.ofertaCap}>
+                          <b>{titluOferta(o)}</b>
+                          <span>{o.s ? `${fmt.format(o.s)} mp` : ""}{o.categorie ? ` · ${o.categorie.toLowerCase()}` : ""}</span>
+                        </span>
+                        <span className={styles.ofertaPret}>
+                          {pm != null && <b>{fmt.format(pm / x.curs)} €/m²</b>}
+                          {o.pret != null && <span>{fmt0.format(o.pret / x.curs)} €</span>}
+                        </span>
+                        <span className={styles.ofertaStare}>
+                          {esteDeschisa(o) && o.limita ? `până la ${o.limita.slice(0, 5)}` : TEXT_STARE[o.stare]}
+                          {!o.p && " · fără hartă"}
+                        </span>
+                      </button>
+                    </li>
+                  );
+                })}
+              </ul>
+              <p className={styles.sursa}>
+                Sursa:{" "}
+                {oferte.map((f, i) => (
+                  <span key={f.uat}>
+                    {i > 0 && "; "}
+                    <a href={f.link ?? REGISTRU_OFERTE} target="_blank" rel="noopener noreferrer">
+                      registrul ofertelor extravilanagricol.ro · {f.nume}
+                    </a>{" "}
+                    (Legea 17/2014), actualizat {f.actualizat}
+                  </span>
+                ))}
+                . Fiecare ofertă are și linkul la pagina ei oficială.
+                Euro la cursul {oferte[0].curs.sursa} din {oferte[0].curs.data} ({oferte[0].curs.eur} lei). Prețuri cerute în oferte,
+                nu prețuri de vânzare. Verde = deschisă, portocaliu = potențial cumpărător, albastru = acceptată, gri = închisă.
+              </p>
+            </details>
           )}
 
           <div className={styles.extra}>
@@ -907,6 +1087,7 @@ function Continut() {
                 ["istorice", "Contururi fără număr (vechi)", "#bbbbbb"],
                 ["intravilan", "Intravilan (iulie 2021)", css(CULOARE_INTRAVILAN)],
                 ["sectoare", "Sectoare cadastrale", "#eb50eb"],
+                ["oferte", "Oferte de vânzare (puncte, €/m²)", css(CULOARE_STARE.deschisa)],
                 ["nuanta", "Nuanța UAT-ului pe toată suprafața", "rgba(255,255,255,.35)"],
                 ["eticheteGoogle", "Străzi și nume Google", "#8ab4f8"],
               ] as [keyof Straturi, string, string][]).map(([k, eticheta, culoare]) => (
@@ -929,8 +1110,63 @@ function Continut() {
   );
 }
 
-function Detalii({ f, uat, d, lim, onInchide, onStreetView }: {
+/** O ofertă de vânzare: preț, preț pe m² (lei și €), stare, termen, acceptări, link oficial. */
+function CardOferta({ x, singur }: { x: OfertaLoc; singur?: boolean }) {
+  const { o, curs } = x;
+  const pm = o.pret && o.s ? o.pret / o.s : null;
+  return (
+    <div className={singur ? undefined : styles.cardOferta}>
+      <div className={styles.eticheta}>
+        <i className={styles.punct} style={{ background: css(CULOARE_STARE[o.stare]) }} />
+        Ofertă de vânzare {o.nr} · {TEXT_STARE[o.stare]}
+      </div>
+      {singur && <div className={styles.numar}>{titluOferta(o)}</div>}
+      <dl>
+        {o.pret != null && (
+          <>
+            <dt>Preț cerut</dt>
+            <dd><b>{fmt0.format(o.pret)} {o.moneda?.toLowerCase() ?? "lei"}</b> · {fmt0.format(o.pret / curs)} €</dd>
+          </>
+        )}
+        {pm != null && (
+          <>
+            <dt>Pe m²</dt>
+            <dd><b>{fmt.format(pm / curs)} €/m²</b> · {fmt.format(pm)} lei/m²</dd>
+          </>
+        )}
+        {o.s != null && (
+          <>
+            <dt>Suprafață</dt>
+            <dd>{fmt.format(o.s)} mp{o.categorie ? ` · ${o.categorie.toLowerCase()}` : ""}</dd>
+          </>
+        )}
+        {(o.tarla || o.parcela) && (
+          <>
+            <dt>Tarla / parcelă</dt>
+            <dd>{[o.tarla, o.parcela].filter((v) => v && v !== "-").join(" / ") || "—"}</dd>
+          </>
+        )}
+        <dt>{esteDeschisa(o) ? "Termen" : "Rezultat"}</dt>
+        <dd>
+          {esteDeschisa(o)
+            ? `${o.stare === "potential" ? "potențiali cumpărători" : "preemptorii pot accepta"} până la ${o.limita ?? "?"}`
+            : o.rezolutie ?? TEXT_STARE[o.stare]}
+        </dd>
+        <dt>Preemptori</dt>
+        <dd>
+          {o.preemptori}{o.acceptari ? ` · ${o.acceptari} a acceptat${o.pret_acceptat ? ` (${fmt0.format(o.pret_acceptat)} lei)` : ""}` : " · nicio acceptare"}
+        </dd>
+      </dl>
+      <div className={styles.butoane}>
+        <a href={o.url} target="_blank" rel="noopener noreferrer">Pagina oficială a ofertei</a>
+      </div>
+    </div>
+  );
+}
+
+function Detalii({ f, uat, d, lim, onInchide, onStreetView, children }: {
   f: Parcela; uat?: UatInfo; d?: DateUat; lim: LimiteToate | null; onInchide: () => void; onStreetView: () => void;
+  children?: React.ReactNode;
 }) {
   const p = f.properties;
   const [lon, lat] = [(f.bb[0] + f.bb[2]) / 2, (f.bb[1] + f.bb[3]) / 2];
@@ -976,6 +1212,7 @@ function Detalii({ f, uat, d, lim, onInchide, onStreetView }: {
         <dd>{coord}</dd>
       </dl>
       {!p.nr && <p className={styles.mic}>Probabil parcela-mamă dinaintea unei dezmembrări sau un contur vechi.</p>}
+      {children}
       <div className={styles.butoane}>
         <button type="button" className={styles.principal} onClick={onStreetView}>Street View</button>
         <a href={`https://www.google.com/maps/search/?api=1&query=${lat},${lon}`} target="_blank" rel="noopener noreferrer">

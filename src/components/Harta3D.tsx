@@ -1,8 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
-  Map3D, Marker3D, Polygon3D, Polyline3D,
+  Map3D, Marker3D, Polygon3D, Polyline3D, Popover,
   type Map3DCameraChangedEvent, type Map3DClickEvent, type Map3DRef, type Map3DSteadyChangeEvent,
 } from "@vis.gl/react-google-maps/3d";
 import type { Parcela } from "@/lib/geo";
@@ -47,8 +47,29 @@ export default function Harta3D({
   const onSteady = useCallback((e: Map3DSteadyChangeEvent) => {
     if (e.detail.isSteady) onCamera(cam.current);
   }, [onCamera]);
+  // obiectiv Google (POI): fereastră cu numele (Places, dacă e activat pe cheie) și link spre Google Maps
+  const [poi, setPoi] = useState<{ id: string; lat: number; lng: number; alt: number; nume?: string; adresa?: string; nota?: string; url?: string } | null>(null);
   const onClick = useCallback((e: Map3DClickEvent) => {
     const p = e.detail.position;
+    const placeId = e.detail.placeId;
+    if (placeId && p) {
+      setPoi({ id: placeId, lat: p.lat, lng: p.lng, alt: p.altitude ?? 0 });
+      (async () => {
+        try {
+          const { Place } = (await google.maps.importLibrary("places")) as google.maps.PlacesLibrary;
+          const pl = new Place({ id: placeId, requestedLanguage: "ro" });
+          await pl.fetchFields({ fields: ["displayName", "formattedAddress", "rating", "userRatingCount", "googleMapsURI"] });
+          setPoi((v) => (v?.id === placeId ? {
+            ...v, nume: pl.displayName ?? undefined, adresa: pl.formattedAddress ?? undefined, url: pl.googleMapsURI ?? undefined,
+            nota: pl.rating ? `${pl.rating.toFixed(1)} ★ (${pl.userRatingCount ?? 0})` : undefined,
+          } : v));
+        } catch {
+          // Places API neactivat pe cheie: rămâne linkul spre Google Maps
+        }
+      })();
+      return;
+    }
+    setPoi(null);
     if (p) onClickLoc(p.lng, p.lat);
   }, [onClickLoc]);
 
@@ -112,6 +133,18 @@ export default function Harta3D({
         {masura.length >= 2 && (
           <Polyline3D path={masura.map(([lng, lat]) => ({ lat, lng }))} altitudeMode="CLAMP_TO_GROUND" strokeColor="#ffffff"
             strokeWidth={4} outerColor="#000000" outerWidth={0.4} drawsOccludedSegments />
+        )}
+        {poi && (
+          <Popover open position={{ lat: poi.lat, lng: poi.lng, altitude: poi.alt }} altitudeMode="ABSOLUTE" onClose={() => setPoi(null)}>
+            <div className={styles.poi}>
+              <b>{poi.nume ?? "Obiectiv Google"}</b>
+              {poi.adresa && <span>{poi.adresa}</span>}
+              {poi.nota && <span>{poi.nota}</span>}
+              <a href={poi.url ?? `https://www.google.com/maps/place/?q=place_id:${poi.id}`} target="_blank" rel="noopener noreferrer">
+                Deschide în Google Maps
+              </a>
+            </div>
+          </Popover>
         )}
         {masura.length >= 3 && (
           <Polygon3D path={masura.map(([lng, lat]) => ({ lat, lng }))} altitudeMode="CLAMP_TO_GROUND"
